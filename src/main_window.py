@@ -11,7 +11,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import src.config as config
 from src.config import (
     x_scale, emg_y_min, emg_y_max, imu_y_min, imu_y_max,
-    SAVE_DATA, BAUDRATE, logger
+    SAVE_DATA, BAUDRATE, logger, PREPROCESSING_ENABLED, 
+    PREPROCESSING_FILTER_TYPE, PREPROCESSING_NORMALIZE, PREPROCESSING_DISPLAY_MODE,
+    processed_emg_y_min, processed_emg_y_max, processed_imu_y_min, processed_imu_y_max
 )
 from src.system_control_module import (
     start_acquisition, stop_acquisition, clear_buffers,
@@ -19,10 +21,11 @@ from src.system_control_module import (
 )
 from src.zoom_control import (
     quick_zoom_in, quick_zoom_out, quick_reset_zoom,
-    quick_emg_zoom_in, quick_emg_zoom_out,
-    quick_imu_zoom_in, quick_imu_zoom_out, zoom_control
+    quick_emg_zoom_in_current, quick_emg_zoom_out_current,
+    quick_imu_zoom_in_current, quick_imu_zoom_out_current, zoom_control,
+    update_zoom_info_display
 )
-from src.plot_display import update_plot
+from src.plot_display import update_plot, init_plot
 
 # 全局变量
 tree = None
@@ -101,8 +104,8 @@ def create_main_window():
     emg_zoom_frame = ttk.Frame(quick_zoom_frame)
     emg_zoom_frame.pack(fill=tk.X, pady=5)
     ttk.Label(emg_zoom_frame, text="EMG纵轴:", width=8).pack(side=tk.LEFT)
-    ttk.Button(emg_zoom_frame, text="放大", command=lambda: quick_emg_zoom_in(emg_zoom_info_var), width=8).pack(side=tk.LEFT, padx=2)
-    ttk.Button(emg_zoom_frame, text="缩小", command=lambda: quick_emg_zoom_out(emg_zoom_info_var), width=8).pack(side=tk.LEFT, padx=2)
+    ttk.Button(emg_zoom_frame, text="放大", command=lambda: quick_emg_zoom_in_current(emg_zoom_info_var), width=8).pack(side=tk.LEFT, padx=2)
+    ttk.Button(emg_zoom_frame, text="缩小", command=lambda: quick_emg_zoom_out_current(emg_zoom_info_var), width=8).pack(side=tk.LEFT, padx=2)
     
     emg_zoom_info_var = tk.StringVar(value=f"EMG: {config.emg_y_min}~{config.emg_y_max} μV")
     ttk.Label(quick_zoom_frame, textvariable=emg_zoom_info_var).pack(pady=2)
@@ -110,11 +113,80 @@ def create_main_window():
     imu_zoom_frame = ttk.Frame(quick_zoom_frame)
     imu_zoom_frame.pack(fill=tk.X, pady=5)
     ttk.Label(imu_zoom_frame, text="IMU纵轴:", width=8).pack(side=tk.LEFT)
-    ttk.Button(imu_zoom_frame, text="放大", command=lambda: quick_imu_zoom_in(imu_zoom_info_var), width=8).pack(side=tk.LEFT, padx=2)
-    ttk.Button(imu_zoom_frame, text="缩小", command=lambda: quick_imu_zoom_out(imu_zoom_info_var), width=8).pack(side=tk.LEFT, padx=2)
+    ttk.Button(imu_zoom_frame, text="放大", command=lambda: quick_imu_zoom_in_current(imu_zoom_info_var), width=8).pack(side=tk.LEFT, padx=2)
+    ttk.Button(imu_zoom_frame, text="缩小", command=lambda: quick_imu_zoom_out_current(imu_zoom_info_var), width=8).pack(side=tk.LEFT, padx=2)
     
     imu_zoom_info_var = tk.StringVar(value=f"IMU: {config.imu_y_min}~{config.imu_y_max}")
     ttk.Label(quick_zoom_frame, textvariable=imu_zoom_info_var).pack(pady=2)
+    
+    preprocessing_frame = ttk.LabelFrame(control_panel, text="信号预处理", padding="10")
+    preprocessing_frame.pack(fill=tk.X, pady=5)
+    
+    # 预处理开关
+    preprocessing_enable_var = tk.BooleanVar(value=config.PREPROCESSING_ENABLED)
+    def toggle_preprocessing():
+        config.PREPROCESSING_ENABLED = preprocessing_enable_var.get()
+        from src.signal_processor import signal_processor
+        signal_processor.set_enabled(config.PREPROCESSING_ENABLED)
+        logger.info(f"预处理已{'启用' if config.PREPROCESSING_ENABLED else '禁用'}")
+    
+    ttk.Checkbutton(preprocessing_frame, text="启用预处理", variable=preprocessing_enable_var, 
+                 command=toggle_preprocessing).pack(anchor=tk.W, pady=2)
+    
+    # 滤波器类型选择
+    ttk.Label(preprocessing_frame, text="滤波器类型:").pack(anchor=tk.W, pady=2)
+    filter_type_var = tk.StringVar(value=config.PREPROCESSING_FILTER_TYPE)
+    def change_filter_type():
+        config.PREPROCESSING_FILTER_TYPE = filter_type_var.get()
+        from src.signal_processor import signal_processor
+        signal_processor.set_filter_type(config.PREPROCESSING_FILTER_TYPE)
+        logger.info(f"滤波器类型: {config.PREPROCESSING_FILTER_TYPE}")
+    
+    filter_frame = ttk.Frame(preprocessing_frame)
+    filter_frame.pack(fill=tk.X, pady=2)
+    ttk.Radiobutton(filter_frame, text="带通滤波", variable=filter_type_var, 
+                  value='bandpass', command=change_filter_type).pack(side=tk.LEFT, padx=5)
+    ttk.Radiobutton(filter_frame, text="陷波滤波", variable=filter_type_var, 
+                  value='notch', command=change_filter_type).pack(side=tk.LEFT, padx=5)
+    ttk.Radiobutton(filter_frame, text="双重滤波", variable=filter_type_var, 
+                  value='both', command=change_filter_type).pack(side=tk.LEFT, padx=5)
+    
+    # 归一化开关
+    normalize_var = tk.BooleanVar(value=config.PREPROCESSING_NORMALIZE)
+    def toggle_normalize():
+        config.PREPROCESSING_NORMALIZE = normalize_var.get()
+        from src.signal_processor import signal_processor
+        signal_processor.set_normalize(config.PREPROCESSING_NORMALIZE)
+        logger.info(f"归一化已{'启用' if config.PREPROCESSING_NORMALIZE else '禁用'}")
+    
+    ttk.Checkbutton(preprocessing_frame, text="归一化", variable=normalize_var, 
+                 command=toggle_normalize).pack(anchor=tk.W, pady=2)
+    
+    # 显示模式切换
+    ttk.Label(preprocessing_frame, text="显示模式:").pack(anchor=tk.W, pady=2)
+    display_mode_var = tk.StringVar(value=config.PREPROCESSING_DISPLAY_MODE)
+    def change_display_mode():
+        config.PREPROCESSING_DISPLAY_MODE = display_mode_var.get()
+        from src.signal_processor import signal_processor
+        
+        # 当切换到预处理信号模式时，自动启用预处理
+        if config.PREPROCESSING_DISPLAY_MODE == 'processed':
+            config.PREPROCESSING_ENABLED = True
+            preprocessing_enable_var.set(True)
+            signal_processor.set_enabled(True)
+            logger.info("已自动启用预处理功能")
+        
+        # 更新缩放信息显示
+        update_zoom_info_display(emg_zoom_info_var, imu_zoom_info_var)
+        
+        logger.info(f"显示模式: {config.PREPROCESSING_DISPLAY_MODE}")
+    
+    display_frame = ttk.Frame(preprocessing_frame)
+    display_frame.pack(fill=tk.X, pady=2)
+    ttk.Radiobutton(display_frame, text="原始信号", variable=display_mode_var, 
+                  value='raw', command=change_display_mode).pack(side=tk.LEFT, padx=5)
+    ttk.Radiobutton(display_frame, text="预处理信号", variable=display_mode_var, 
+                  value='processed', command=change_display_mode).pack(side=tk.LEFT, padx=5)
     
     advanced_frame = ttk.LabelFrame(control_panel, text="高级功能", padding="10")
     advanced_frame.pack(fill=tk.X, pady=5)
@@ -148,6 +220,7 @@ def create_main_window():
     ttk.Label(info_frame, text="IMU 通道: 6个 (单位: rad/s, m/s²)").pack(side=tk.LEFT, padx=10)
     ttk.Label(info_frame, text=f"波特率: {config.BAUDRATE}").pack(side=tk.LEFT, padx=10)
     ttk.Label(info_frame, text=f"横轴缩放: {config.x_scale} 点").pack(side=tk.LEFT, padx=10)
+    ttk.Label(info_frame, text=f"显示模式: {'原始' if config.PREPROCESSING_DISPLAY_MODE == 'raw' else '预处理'}").pack(side=tk.LEFT, padx=10)
     
     refresh_ports()
     root.protocol("WM_DELETE_WINDOW", on_closing)
@@ -179,6 +252,9 @@ def create_plots(plot_frame):
     canvas = FigureCanvasTkAgg(fig, master=plot_frame)
     canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    
+    # 初始化图表对象（set_data模式）
+    init_plot(axs)
 
 
 def refresh_ports():

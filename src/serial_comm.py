@@ -7,8 +7,10 @@
 import time
 import src.config as config
 from src.config import SERIAL_PORT, BAUDRATE, running, ser, emg_buffer, imu_buffer, logger
+from src.config import PREPROCESSING_ENABLED
 from src.data_parser import parse_packet
 from src.data_manager import save_data_point
+from src.signal_processor import signal_processor
 
 
 def serial_reader():
@@ -84,10 +86,18 @@ def serial_reader():
                                     config.emg_buffer.append((ts, parsed_data))
                                     save_data_point('EMG', ts, parsed_data)
                                     logger.info(f"解析到EMG数据: {parsed_data[:2]}...")
+                                    
+                                    # 预处理
+                                    if config.PREPROCESSING_ENABLED:
+                                        signal_processor.update_buffers(parsed_data, [])
                                 elif pkt_type == 'IMU':
                                     config.imu_buffer.append((ts, parsed_data))
                                     save_data_point('IMU', ts, parsed_data)
                                     logger.info(f"解析到IMU数据: {parsed_data[:2]}...")
+                                    
+                                    # 预处理
+                                    if config.PREPROCESSING_ENABLED:
+                                        signal_processor.update_buffers([], parsed_data)
                             else:
                                 error_count += 1
                                 if error_count % 10 == 0:

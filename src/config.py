@@ -26,9 +26,25 @@ emg_y_max = 50000
 imu_y_min = -5
 imu_y_max = 5
 
+# 预处理信号的独立缩放参数
+processed_emg_y_min = -1.5
+processed_emg_y_max = 1.5
+processed_imu_y_min = -1.5
+processed_imu_y_max = 1.5
+
 # 运行状态
 running = False
 ser = None
+
+# 信号预处理配置
+PREPROCESSING_ENABLED = False
+PREPROCESSING_FILTER_TYPE = 'bandpass'
+PREPROCESSING_NORMALIZE = False
+PREPROCESSING_DISPLAY_MODE = 'raw'  # 'raw' 或 'processed'
+
+# 预处理后的数据缓冲区（由signal_processor管理）
+processed_emg_buffer = []
+processed_imu_buffer = []
 
 # 缩放预设
 zoom_presets = {

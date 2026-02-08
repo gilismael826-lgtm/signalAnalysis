@@ -9,7 +9,8 @@ from tkinter import ttk, messagebox
 import src.config as config
 from src.config import (
     x_scale, emg_y_min, emg_y_max, imu_y_min, imu_y_max,
-    zoom_presets, logger
+    zoom_presets, logger, PREPROCESSING_DISPLAY_MODE,
+    processed_emg_y_min, processed_emg_y_max, processed_imu_y_min, processed_imu_y_max
 )
 
 
@@ -145,6 +146,152 @@ def quick_imu_zoom_out(imu_zoom_info_var=None):
     logger.info(f"IMU纵轴缩小: {config.imu_y_min}~{config.imu_y_max}")
 
 
+def get_current_y_range():
+    """根据当前显示模式和归一化状态获取Y轴范围
+    
+    Returns:
+        tuple: (emg_y_min, emg_y_max, imu_y_min, imu_y_max)
+    """
+    if config.PREPROCESSING_DISPLAY_MODE == 'processed':
+        from src.signal_processor import signal_processor
+        if signal_processor.normalize:
+            # 开启归一化时，返回预处理信号的参数
+            return config.processed_emg_y_min, config.processed_emg_y_max, config.processed_imu_y_min, config.processed_imu_y_max
+        else:
+            # 关闭归一化时，返回原始信号的参数
+            return config.emg_y_min, config.emg_y_max, config.imu_y_min, config.imu_y_max
+    else:
+        return config.emg_y_min, config.emg_y_max, config.imu_y_min, config.imu_y_max
+
+
+def update_y_range(emg_y_min, emg_y_max, imu_y_min, imu_y_max, emg_zoom_info_var=None, imu_zoom_info_var=None):
+    """更新Y轴范围
+    
+    Args:
+        emg_y_min: EMG Y轴最小值
+        emg_y_max: EMG Y轴最大值
+        imu_y_min: IMU Y轴最小值
+        imu_y_max: IMU Y轴最大值
+        emg_zoom_info_var: EMG缩放信息变量
+        imu_zoom_info_var: IMU缩放信息变量
+    """
+    if config.PREPROCESSING_DISPLAY_MODE == 'processed':
+        from src.signal_processor import signal_processor
+        if signal_processor.normalize:
+            # 开启归一化时，修改预处理信号的参数
+            config.processed_emg_y_min = emg_y_min
+            config.processed_emg_y_max = emg_y_max
+            config.processed_imu_y_min = imu_y_min
+            config.processed_imu_y_max = imu_y_max
+            unit = "归一化"
+        else:
+            # 关闭归一化时，修改原始信号的参数
+            config.emg_y_min = emg_y_min
+            config.emg_y_max = emg_y_max
+            config.imu_y_min = imu_y_min
+            config.imu_y_max = imu_y_max
+            unit = "μV"
+    else:
+        # 原始信号模式，修改原始信号的参数
+        config.emg_y_min = emg_y_min
+        config.emg_y_max = emg_y_max
+        config.imu_y_min = imu_y_min
+        config.imu_y_max = imu_y_max
+        unit = "μV"
+    
+    if emg_zoom_info_var:
+        emg_zoom_info_var.set(f"EMG: {emg_y_min}~{emg_y_max} {unit}")
+    if imu_zoom_info_var:
+        imu_zoom_info_var.set(f"IMU: {imu_y_min}~{imu_y_max}")
+    
+    logger.info(f"更新Y轴范围: emg=({emg_y_min},{emg_y_max}), imu=({imu_y_min},{imu_y_max}), mode={config.PREPROCESSING_DISPLAY_MODE}")
+
+
+def quick_emg_zoom_in_current(emg_zoom_info_var=None):
+    """当前显示模式的EMG纵轴快速放大
+    
+    Args:
+        emg_zoom_info_var: EMG纵轴缩放信息变量
+    """
+    emg_y_min, emg_y_max, imu_y_min, imu_y_max = get_current_y_range()
+    current_range = emg_y_max - emg_y_min
+    new_range = max(0.1, current_range * 0.7)
+    center = (emg_y_min + emg_y_max) / 2
+    new_emg_y_min = center - new_range / 2
+    new_emg_y_max = center + new_range / 2
+    update_y_range(new_emg_y_min, new_emg_y_max, imu_y_min, imu_y_max, emg_zoom_info_var)
+
+
+def quick_emg_zoom_out_current(emg_zoom_info_var=None):
+    """当前显示模式的EMG纵轴快速缩小
+    
+    Args:
+        emg_zoom_info_var: EMG纵轴缩放信息变量
+    """
+    emg_y_min, emg_y_max, imu_y_min, imu_y_max = get_current_y_range()
+    current_range = emg_y_max - emg_y_min
+    new_range = min(1000000, current_range * 1.5)
+    center = (emg_y_min + emg_y_max) / 2
+    new_emg_y_min = center - new_range / 2
+    new_emg_y_max = center + new_range / 2
+    update_y_range(new_emg_y_min, new_emg_y_max, imu_y_min, imu_y_max, emg_zoom_info_var)
+
+
+def quick_imu_zoom_in_current(imu_zoom_info_var=None):
+    """当前显示模式的IMU纵轴快速放大
+    
+    Args:
+        imu_zoom_info_var: IMU纵轴缩放信息变量
+    """
+    emg_y_min, emg_y_max, imu_y_min, imu_y_max = get_current_y_range()
+    current_range = imu_y_max - imu_y_min
+    new_range = max(0.1, current_range * 0.7)
+    center = (imu_y_min + imu_y_max) / 2
+    new_imu_y_min = center - new_range / 2
+    new_imu_y_max = center + new_range / 2
+    update_y_range(emg_y_min, emg_y_max, new_imu_y_min, new_imu_y_max, None, imu_zoom_info_var)
+
+
+def quick_imu_zoom_out_current(imu_zoom_info_var=None):
+    """当前显示模式的IMU纵轴快速缩小
+    
+    Args:
+        imu_zoom_info_var: IMU纵轴缩放信息变量
+    """
+    emg_y_min, emg_y_max, imu_y_min, imu_y_max = get_current_y_range()
+    current_range = imu_y_max - imu_y_min
+    new_range = min(1000000, current_range * 1.5)
+    center = (imu_y_min + imu_y_max) / 2
+    new_imu_y_min = center - new_range / 2
+    new_imu_y_max = center + new_range / 2
+    update_y_range(emg_y_min, emg_y_max, new_imu_y_min, new_imu_y_max, None, imu_zoom_info_var)
+
+
+def update_zoom_info_display(emg_zoom_info_var=None, imu_zoom_info_var=None):
+    """更新缩放信息显示
+    
+    Args:
+        emg_zoom_info_var: EMG缩放信息变量
+        imu_zoom_info_var: IMU缩放信息变量
+    """
+    emg_y_min, emg_y_max, imu_y_min, imu_y_max = get_current_y_range()
+    
+    # 根据显示模式和归一化状态，确定单位
+    if config.PREPROCESSING_DISPLAY_MODE == 'processed':
+        from src.signal_processor import signal_processor
+        if signal_processor.normalize:
+            unit = "归一化"
+        else:
+            unit = "μV"
+    else:
+        unit = "μV"
+    
+    if emg_zoom_info_var:
+        emg_zoom_info_var.set(f"EMG: {emg_y_min}~{emg_y_max} {unit}")
+    if imu_zoom_info_var:
+        imu_zoom_info_var.set(f"IMU: {imu_y_min}~{imu_y_max}")
+
+
 def zoom_control(root, zoom_info_var=None, emg_zoom_info_var=None, imu_zoom_info_var=None):
     """缩放控制窗口
     
@@ -183,8 +330,9 @@ def zoom_control(root, zoom_info_var=None, emg_zoom_info_var=None, imu_zoom_info
     emg_y_frame = ttk.LabelFrame(zoom_window, text="EMG纵轴范围", padding="10")
     emg_y_frame.pack(fill=tk.X, padx=10, pady=5)
     
-    emg_y_min_var = tk.StringVar(value=str(config.emg_y_min))
-    emg_y_max_var = tk.StringVar(value=str(config.emg_y_max))
+    emg_y_min, emg_y_max, imu_y_min, imu_y_max = get_current_y_range()
+    emg_y_min_var = tk.StringVar(value=str(emg_y_min))
+    emg_y_max_var = tk.StringVar(value=str(emg_y_max))
     
     emg_y_frame_inner = ttk.Frame(emg_y_frame)
     emg_y_frame_inner.pack(fill=tk.X)
@@ -193,13 +341,23 @@ def zoom_control(root, zoom_info_var=None, emg_zoom_info_var=None, imu_zoom_info
     ttk.Entry(emg_y_frame_inner, textvariable=emg_y_min_var, width=10).pack(side=tk.LEFT, padx=5)
     ttk.Label(emg_y_frame_inner, text="最大值: ", width=10).pack(side=tk.LEFT)
     ttk.Entry(emg_y_frame_inner, textvariable=emg_y_max_var, width=10).pack(side=tk.LEFT, padx=5)
-    ttk.Label(emg_y_frame, text="单位: μV").pack(anchor=tk.W, pady=2)
+    
+    # 根据显示模式和归一化状态，确定单位
+    if config.PREPROCESSING_DISPLAY_MODE == 'processed':
+        from src.signal_processor import signal_processor
+        if signal_processor.normalize:
+            unit = "归一化"
+        else:
+            unit = "μV"
+    else:
+        unit = "μV"
+    ttk.Label(emg_y_frame, text=f"单位: {unit}").pack(anchor=tk.W, pady=2)
     
     imu_y_frame = ttk.LabelFrame(zoom_window, text="IMU纵轴范围", padding="10")
     imu_y_frame.pack(fill=tk.X, padx=10, pady=5)
     
-    imu_y_min_var = tk.StringVar(value=str(config.imu_y_min))
-    imu_y_max_var = tk.StringVar(value=str(config.imu_y_max))
+    imu_y_min_var = tk.StringVar(value=str(imu_y_min))
+    imu_y_max_var = tk.StringVar(value=str(imu_y_max))
     
     imu_y_frame_inner = ttk.Frame(imu_y_frame)
     imu_y_frame_inner.pack(fill=tk.X)
@@ -216,8 +374,8 @@ def zoom_control(root, zoom_info_var=None, emg_zoom_info_var=None, imu_zoom_info
             if new_x_scale < 1 or new_x_scale > 10000:
                 raise ValueError("横轴缩放范围应在1-10000之间")
             
-            new_emg_y_min = int(emg_y_min_var.get())
-            new_emg_y_max = int(emg_y_max_var.get())
+            new_emg_y_min = float(emg_y_min_var.get())
+            new_emg_y_max = float(emg_y_max_var.get())
             if new_emg_y_min >= new_emg_y_max:
                 raise ValueError("EMG最小值应小于最大值")
             
@@ -227,44 +385,67 @@ def zoom_control(root, zoom_info_var=None, emg_zoom_info_var=None, imu_zoom_info
                 raise ValueError("IMU最小值应小于最大值")
             
             config.x_scale = new_x_scale
-            config.emg_y_min = new_emg_y_min
-            config.emg_y_max = new_emg_y_max
-            config.imu_y_min = new_imu_y_min
-            config.imu_y_max = new_imu_y_max
+            update_y_range(new_emg_y_min, new_emg_y_max, new_imu_y_min, new_imu_y_max, emg_zoom_info_var, imu_zoom_info_var)
             
             if zoom_info_var:
                 zoom_info_var.set(f"当前: {config.x_scale} 点")
-            if emg_zoom_info_var:
-                emg_zoom_info_var.set(f"EMG: {config.emg_y_min}~{config.emg_y_max} μV")
-            if imu_zoom_info_var:
-                imu_zoom_info_var.set(f"IMU: {config.imu_y_min}~{config.imu_y_max}")
             
             zoom_window.destroy()
-            logger.info(f"保存缩放设置: x_scale={config.x_scale}, emg_y=({config.emg_y_min},{config.emg_y_max}), imu_y=({config.imu_y_min},{config.imu_y_max})")
+            logger.info(f"保存缩放设置: x_scale={config.x_scale}, emg_y=({new_emg_y_min},{new_emg_y_max}), imu_y=({new_imu_y_min},{new_imu_y_max})")
         except ValueError as e:
             messagebox.showerror("错误", str(e))
         except Exception as e:
             messagebox.showerror("错误", f"保存设置失败: {e}")
     
     def reset_zoom_settings():
-        config.x_scale = 3000
-        config.emg_y_min = -2000
-        config.emg_y_max = 2000
-        config.imu_y_min = -5
-        config.imu_y_max = 5
+        config.x_scale = 5000
+        
+        if config.PREPROCESSING_DISPLAY_MODE == 'processed':
+            from src.signal_processor import signal_processor
+            if signal_processor.normalize:
+                # 开启归一化时，使用小范围
+                config.processed_emg_y_min = -1.5
+                config.processed_emg_y_max = 1.5
+                config.processed_imu_y_min = -1.5
+                config.processed_imu_y_max = 1.5
+                emg_y_min_var.set(str(config.processed_emg_y_min))
+                emg_y_max_var.set(str(config.processed_emg_y_max))
+                imu_y_min_var.set(str(config.processed_imu_y_min))
+                imu_y_max_var.set(str(config.processed_imu_y_max))
+            else:
+                # 关闭归一化时，使用与原始信号相似的范围
+                config.emg_y_min = -50000
+                config.emg_y_max = 50000
+                config.imu_y_min = -5
+                config.imu_y_max = 5
+                emg_y_min_var.set(str(config.emg_y_min))
+                emg_y_max_var.set(str(config.emg_y_max))
+                imu_y_min_var.set(str(config.imu_y_min))
+                imu_y_max_var.set(str(config.imu_y_max))
+        else:
+            config.emg_y_min = -50000
+            config.emg_y_max = 50000
+            config.imu_y_min = -5
+            config.imu_y_max = 5
+            emg_y_min_var.set(str(config.emg_y_min))
+            emg_y_max_var.set(str(config.emg_y_max))
+            imu_y_min_var.set(str(config.imu_y_min))
+            imu_y_max_var.set(str(config.imu_y_max))
         
         x_scale_var.set(str(config.x_scale))
-        emg_y_min_var.set(str(config.emg_y_min))
-        emg_y_max_var.set(str(config.emg_y_max))
-        imu_y_min_var.set(str(config.imu_y_min))
-        imu_y_max_var.set(str(config.imu_y_max))
         
         if zoom_info_var:
             zoom_info_var.set(f"当前: {config.x_scale} 点")
         if emg_zoom_info_var:
-            emg_zoom_info_var.set(f"EMG: {config.emg_y_min}~{config.emg_y_max} μV")
+            # 根据显示模式和归一化状态，确定单位
+            from src.signal_processor import signal_processor
+            if config.PREPROCESSING_DISPLAY_MODE == 'processed' and signal_processor.normalize:
+                unit = "归一化"
+            else:
+                unit = "μV"
+            emg_zoom_info_var.set(f"EMG: {emg_y_min_var.get()}~{emg_y_max_var.get()} {unit}")
         if imu_zoom_info_var:
-            imu_zoom_info_var.set(f"IMU: {config.imu_y_min}~{config.imu_y_max}")
+            imu_zoom_info_var.set(f"IMU: {imu_y_min_var.get()}~{imu_y_max_var.get()}")
         
         logger.info("重置缩放设置为默认值")
     

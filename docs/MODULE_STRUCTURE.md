@@ -10,6 +10,7 @@ signalAnalysis/
 │   ├── data_manager.py        # 数据管理模块
 │   ├── data_parser.py         # 数据解析模块
 │   ├── serial_comm.py         # 串口通信模块
+│   ├── signal_processor.py    # 信号预处理模块
 │   ├── plot_display.py        # 绘图显示模块
 │   ├── zoom_control.py        # 缩放控制模块
 │   ├── system_control_module.py # 系统控制模块
@@ -72,32 +73,75 @@ signalAnalysis/
 **主要函数**：
 - `serial_reader()`：串口数据接收线程
 
-### 5. plot_display.py - 绘图显示模块
+### 5. signal_processor.py - 信号预处理模块
+**功能**：
+- 信号去趋势处理
+- 带通滤波（20-100Hz）
+- 陷波滤波（50Hz）
+- 信号归一化
+- 实时数据处理
+- 预处理数据缓冲区管理
+
+**主要函数**：
+- `set_enabled()`：启用/禁用预处理
+- `set_filter_type()`：设置滤波器类型
+- `set_normalize()`：设置归一化开关
+- `update_buffers()`：更新预处理数据缓冲区
+- `process_emg_data()`：处理EMG数据
+- `process_imu_data()`：处理IMU数据
+- `detrend()`：去趋势处理
+- `apply_bandpass_filter()`：应用带通滤波
+- `apply_notch_filter()`：应用陷波滤波
+- `apply_normalization()`：应用归一化
+
+**主要变量**：
+- `enabled`：预处理开关状态
+- `filter_type`：滤波器类型（bandpass/notch/both）
+- `normalize`：归一化开关状态
+- `processed_emg_buffer`：预处理EMG数据缓冲区
+- `processed_imu_buffer`：预处理IMU数据缓冲区
+
+### 6. plot_display.py - 绘图显示模块
 **功能**：
 - 实时数据可视化
 - 图表更新
 - EMG和IMU数据显示
+- 支持原始信号和预处理信号切换显示
+- 智能Y轴范围调整（根据归一化状态自动调整）
 
 **主要函数**：
 - `update_plot()`：更新图表显示
 
-### 6. zoom_control.py - 缩放控制模块
+**主要变量**：
+- `PREPROCESSING_DISPLAY_MODE`：显示模式（raw/processed）
+
+### 7. zoom_control.py - 缩放控制模块
 **功能**：
 - 横轴缩放控制
 - EMG纵轴缩放控制
 - IMU纵轴缩放控制
 - 预设配置管理
 - 缩放控制窗口
+- 支持原始信号和预处理信号独立缩放
+- 智能Y轴范围调整（根据归一化状态自动调整）
 
 **主要函数**：
 - `quick_zoom_in()`：快速放大
 - `quick_zoom_out()`：快速缩小
 - `quick_reset_zoom()`：快速重置
-- `quick_emg_zoom_in()`：EMG纵轴放大
-- `quick_emg_zoom_out()`：EMG纵轴缩小
-- `quick_imu_zoom_in()`：IMU纵轴放大
-- `quick_imu_zoom_out()`：IMU纵轴缩小
+- `quick_emg_zoom_in_current()`：当前显示模式的EMG纵轴放大
+- `quick_emg_zoom_out_current()`：当前显示模式的EMG纵轴缩小
+- `quick_imu_zoom_in_current()`：当前显示模式的IMU纵轴放大
+- `quick_imu_zoom_out_current()`：当前显示模式的IMU纵轴缩小
+- `get_current_y_range()`：根据显示模式和归一化状态获取Y轴范围
+- `update_y_range()`：更新Y轴范围
+- `update_zoom_info_display()`：更新缩放信息显示
 - `zoom_control()`：缩放控制窗口
+
+**主要变量**：
+- `PREPROCESSING_DISPLAY_MODE`：显示模式（raw/processed）
+- `processed_emg_y_min/max`：预处理EMG信号Y轴范围
+- `processed_imu_y_min/max`：预处理IMU信号Y轴范围
 
 ### 7. system_control_module.py - 系统控制模块
 **功能**：
@@ -144,11 +188,15 @@ main_window.py
     │       ├── config.py
     │       ├── data_parser.py
     │       │   └── config.py
-    │       └── data_manager.py
+    │       ├── data_manager.py
+    │       └── signal_processor.py
+    │           └── config.py
     ├── zoom_control.py
-    │   └── config.py
+    │   ├── config.py
+    │   └── signal_processor.py
     └── plot_display.py
-        └── config.py
+        ├── config.py
+        └── signal_processor.py
 ```
 
 ## 🚀 使用方法
