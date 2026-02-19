@@ -42,6 +42,13 @@ PREPROCESSING_FILTER_TYPE = 'bandpass'
 PREPROCESSING_NORMALIZE = False
 PREPROCESSING_DISPLAY_MODE = 'raw'  # 'raw' 或 'processed'
 
+# IMU预处理配置（用于手势识别）
+IMU_LOWPASS_ENABLED = True  # 启用低通滤波
+IMU_LOWPASS_CUTOFF = 10.0  # 低通滤波截止频率（Hz）
+IMU_LOWPASS_ORDER = 4  # 低通滤波阶数
+IMU_MOVING_AVG_ENABLED = True  # 启用移动平均滤波
+IMU_MOVING_AVG_WINDOW = 5  # 移动平均窗口大小
+
 # 预处理后的数据缓冲区（由signal_processor管理）
 processed_emg_buffer = []
 processed_imu_buffer = []

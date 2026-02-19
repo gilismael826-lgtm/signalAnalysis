@@ -30,6 +30,7 @@ class SignalProcessor:
         # 滤波器系数缓存
         self.bandpass_coeffs = None
         self.notch_coeffs = None
+        self.lowpass_coeffs = None
         
         # 实时数据缓冲区（用于滤波）
         self.emg_filter_buffers = [[] for _ in range(8)]
@@ -128,6 +129,53 @@ class SignalProcessor:
         y = lfilter(b, a, data)
         return y
     
+    def design_lowpass_filter(self, cutoff=10.0, order=4):
+        """设计低通滤波器（用于IMU信号）
+        
+        Args:
+            cutoff: 截止频率（Hz）
+            order: 滤波器阶数
+        """
+        nyq = 0.5 * self.sample_rate
+        high = cutoff / nyq
+        b, a = butter(order, high, btype='low')
+        self.lowpass_coeffs = (b, a)
+        logger.info(f"低通滤波器设计完成: {cutoff}Hz, 阶数={order}")
+        return b, a
+    
+    def apply_lowpass_filter(self, data):
+        """应用低通滤波器（用于IMU信号）
+        
+        Args:
+            data: 输入数据
+            
+        Returns:
+            滤波后的数据
+        """
+        if self.lowpass_coeffs is None:
+            self.design_lowpass_filter()
+        
+        b, a = self.lowpass_coeffs
+        y = lfilter(b, a, data)
+        return y
+    
+    def apply_moving_average(self, data, window_size=5):
+        """应用移动平均滤波（用于IMU信号）
+        
+        Args:
+            data: 输入数据
+            window_size: 窗口大小
+            
+        Returns:
+            滤波后的数据
+        """
+        if len(data) < window_size:
+            return data
+        
+        padded = np.pad(data, (window_size // 2, window_size // 2), mode='edge')
+        smoothed = np.convolve(padded, np.ones(window_size) / window_size, mode='valid')
+        return smoothed
+    
     def apply_normalization(self, data):
         """应用归一化
         
@@ -194,7 +242,7 @@ class SignalProcessor:
         return processed
     
     def process_imu_data(self, imu_data):
-        """处理IMU数据
+        """处理IMU数据（用于手势识别）
         
         Args:
             imu_data: IMU数据列表（6个通道）
@@ -212,6 +260,19 @@ class SignalProcessor:
             
             # 去趋势
             data = self.detrend(data)
+            
+            # 低通滤波（去除高频噪声，适合手势识别）
+            if config.IMU_LOWPASS_ENABLED:
+                if self.lowpass_coeffs is None:
+                    self.design_lowpass_filter(
+                        cutoff=config.IMU_LOWPASS_CUTOFF,
+                        order=config.IMU_LOWPASS_ORDER
+                    )
+                data = self.apply_lowpass_filter(data)
+            
+            # 移动平均滤波（平滑数据）
+            if config.IMU_MOVING_AVG_ENABLED:
+                data = self.apply_moving_average(data, window_size=config.IMU_MOVING_AVG_WINDOW)
             
             # 归一化
             if self.normalize:
@@ -285,6 +346,19 @@ class SignalProcessor:
                     
                     # 去趋势
                     data = self.detrend(data)
+                    
+                    # 低通滤波（去除高频噪声，适合手势识别）
+                    if config.IMU_LOWPASS_ENABLED:
+                        if self.lowpass_coeffs is None:
+                            self.design_lowpass_filter(
+                                cutoff=config.IMU_LOWPASS_CUTOFF,
+                                order=config.IMU_LOWPASS_ORDER
+                            )
+                        data = self.apply_lowpass_filter(data)
+                    
+                    # 移动平均滤波（平滑数据）
+                    if config.IMU_MOVING_AVG_ENABLED:
+                        data = self.apply_moving_average(data, window_size=config.IMU_MOVING_AVG_WINDOW)
                     
                     # 归一化
                     if self.normalize:
