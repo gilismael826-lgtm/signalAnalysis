@@ -13,13 +13,11 @@ from src.main_window import create_main_window
 def main():
     """主函数"""
     try:
-        # 确保日志目录存在
-        if not os.path.exists('logs'):
-            os.makedirs('logs')
-        
-        # 确保数据目录存在
-        if not os.path.exists(config.DATA_DIR):
-            os.makedirs(config.DATA_DIR)
+        # 确保必要的目录存在
+        directories = ['logs', 'data', 'data/raw', 'data/datasets', 'data/users', 'models']
+        for directory in directories:
+            if not os.path.exists(directory):
+                os.makedirs(directory)
         
         logger.info("=== 启动 EMG/IMU 系统控制中心 ===")
         logger.info(f"系统配置: 波特率={config.BAUDRATE}, 保存数据={config.SAVE_DATA}")

@@ -305,7 +305,36 @@ def zoom_control(root, zoom_info_var=None, emg_zoom_info_var=None, imu_zoom_info
     zoom_window.title("波形缩放控制")
     zoom_window.geometry("450x500")
     
-    quick_frame = ttk.LabelFrame(zoom_window, text="快速缩放", padding="10")
+    title_frame = ttk.Frame(zoom_window)
+    title_frame.pack(fill=tk.X, pady=5)
+    ttk.Label(title_frame, text="波形缩放控制", font=("Arial", 12, "bold")).pack(pady=5)
+    
+    container = ttk.Frame(zoom_window)
+    container.pack(fill=tk.BOTH, expand=True, padx=5)
+    container.pack_propagate(False)
+    
+    canvas = tk.Canvas(container, highlightthickness=0)
+    scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+    scrollable_frame = ttk.Frame(canvas)
+    
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+    
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    
+    def on_mousewheel(event):
+        canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+    
+    canvas.bind("<MouseWheel>", on_mousewheel)
+    scrollable_frame.bind("<MouseWheel>", on_mousewheel)
+    
+    quick_frame = ttk.LabelFrame(scrollable_frame, text="快速缩放", padding="10")
     quick_frame.pack(fill=tk.X, padx=10, pady=5)
     
     quick_btn_frame = ttk.Frame(quick_frame)
@@ -314,20 +343,20 @@ def zoom_control(root, zoom_info_var=None, emg_zoom_info_var=None, imu_zoom_info
     ttk.Button(quick_btn_frame, text="缩小", command=lambda: quick_zoom_out(zoom_info_var), width=10).pack(side=tk.LEFT, padx=5)
     ttk.Button(quick_btn_frame, text="重置", command=lambda: quick_reset_zoom(zoom_info_var, emg_zoom_info_var, imu_zoom_info_var), width=10).pack(side=tk.LEFT, padx=5)
     
-    preset_frame = ttk.LabelFrame(zoom_window, text="预设配置", padding="10")
+    preset_frame = ttk.LabelFrame(scrollable_frame, text="预设配置", padding="10")
     preset_frame.pack(fill=tk.X, padx=10, pady=5)
     
     for preset_name in zoom_presets:
         ttk.Button(preset_frame, text=preset_name, command=lambda name=preset_name: apply_zoom_preset(name, zoom_info_var, emg_zoom_info_var, imu_zoom_info_var), width=20).pack(pady=2)
     
-    x_scale_frame = ttk.LabelFrame(zoom_window, text="横轴缩放", padding="10")
+    x_scale_frame = ttk.LabelFrame(scrollable_frame, text="横轴缩放", padding="10")
     x_scale_frame.pack(fill=tk.X, padx=10, pady=5)
     
     x_scale_var = tk.StringVar(value=str(config.x_scale))
     ttk.Entry(x_scale_frame, textvariable=x_scale_var).pack(fill=tk.X)
     ttk.Label(x_scale_frame, text="显示数据点数量 (1-10000)").pack(anchor=tk.W, pady=2)
     
-    emg_y_frame = ttk.LabelFrame(zoom_window, text="EMG纵轴范围", padding="10")
+    emg_y_frame = ttk.LabelFrame(scrollable_frame, text="EMG纵轴范围", padding="10")
     emg_y_frame.pack(fill=tk.X, padx=10, pady=5)
     
     emg_y_min, emg_y_max, imu_y_min, imu_y_max = get_current_y_range()
@@ -353,7 +382,7 @@ def zoom_control(root, zoom_info_var=None, emg_zoom_info_var=None, imu_zoom_info
         unit = "μV"
     ttk.Label(emg_y_frame, text=f"单位: {unit}").pack(anchor=tk.W, pady=2)
     
-    imu_y_frame = ttk.LabelFrame(zoom_window, text="IMU纵轴范围", padding="10")
+    imu_y_frame = ttk.LabelFrame(scrollable_frame, text="IMU纵轴范围", padding="10")
     imu_y_frame.pack(fill=tk.X, padx=10, pady=5)
     
     imu_y_min_var = tk.StringVar(value=str(imu_y_min))

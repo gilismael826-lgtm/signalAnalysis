@@ -1,0 +1,10 @@
+{
+  "serial_port": "COM5",
+  "baudrate": 921600,
+  "save_data": true,
+  "x_scale": 5000,
+  "emg_y_min": -50000,
+  "emg_y_max": 50000,
+  "imu_y_min": -5,
+  "imu_y_max": 5
+}

@@ -84,14 +84,17 @@ def serial_reader():
                                 
                                 if pkt_type == 'EMG':
                                     config.emg_buffer.append((ts, parsed_data))
+                                    if config.is_collecting:
+                                        config.collection_emg_buffer.append((ts, parsed_data))
                                     save_data_point('EMG', ts, parsed_data)
                                     logger.info(f"解析到EMG数据: {parsed_data[:2]}...")
                                     
-                                    # 预处理
                                     if config.PREPROCESSING_ENABLED:
                                         signal_processor.update_buffers(parsed_data, [])
                                 elif pkt_type == 'IMU':
                                     config.imu_buffer.append((ts, parsed_data))
+                                    if config.is_collecting:
+                                        config.collection_imu_buffer.append((ts, parsed_data))
                                     save_data_point('IMU', ts, parsed_data)
                                     logger.info(f"解析到IMU数据: {parsed_data[:2]}...")
                                     

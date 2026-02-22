@@ -14,22 +14,26 @@ from src import data_manager
 class SignalProcessor:
     """信号预处理器"""
     
-    def __init__(self, sample_rate=250.0, buffer_size=500):
+    def __init__(self, emg_sample_rate=250.0, imu_sample_rate=104.0, buffer_size=500):
         """初始化信号预处理器
         
         Args:
-            sample_rate: 采样率（Hz）
+            emg_sample_rate: EMG采样率（Hz）
+            imu_sample_rate: IMU采样率（Hz）
             buffer_size: 缓冲区大小（样本数）
         """
-        self.sample_rate = sample_rate
+        self.emg_sample_rate = emg_sample_rate
+        self.imu_sample_rate = imu_sample_rate
         self.buffer_size = buffer_size
         self.enabled = False
         self.filter_type = 'bandpass'
         self.normalize = False
         
-        # 滤波器系数缓存
+        # EMG滤波器系数缓存
         self.bandpass_coeffs = None
         self.notch_coeffs = None
+        
+        # IMU滤波器系数缓存
         self.lowpass_coeffs = None
         
         # 实时数据缓冲区（用于滤波）
@@ -39,6 +43,10 @@ class SignalProcessor:
         # 预处理后的数据缓冲区
         self.processed_emg_buffer = []
         self.processed_imu_buffer = []
+        
+        # 样本计数器（分别用于EMG和IMU）
+        self.emg_sample_count = 0
+        self.imu_sample_count = 0
     
     def set_enabled(self, enabled):
         """启用或禁用预处理
@@ -70,31 +78,31 @@ class SignalProcessor:
         logger.info(f"归一化已{'启用' if normalize else '禁用'}")
     
     def design_bandpass_filter(self, lowcut=20.0, highcut=100.0, order=4):
-        """设计带通滤波器
+        """设计带通滤波器（用于EMG信号）
         
         Args:
             lowcut: 低截止频率（Hz）
             highcut: 高截止频率（Hz）
             order: 滤波器阶数
         """
-        nyq = 0.5 * self.sample_rate
+        nyq = 0.5 * self.emg_sample_rate
         low = lowcut / nyq
         high = highcut / nyq
         b, a = butter(order, [low, high], btype='band')
         self.bandpass_coeffs = (b, a)
-        logger.info(f"带通滤波器设计完成: {lowcut}-{highcut}Hz, 阶数={order}")
+        logger.info(f"带通滤波器设计完成: {lowcut}-{highcut}Hz, 阶数={order}, 采样率={self.emg_sample_rate}Hz")
         return b, a
     
     def design_notch_filter(self, notch_freq=50.0, quality_factor=30.0):
-        """设计陷波滤波器
+        """设计陷波滤波器（用于EMG信号）
         
         Args:
             notch_freq: 陷波频率（Hz）
             quality_factor: 品质因数
         """
-        b, a = iirnotch(notch_freq, quality_factor, fs=self.sample_rate)
+        b, a = iirnotch(notch_freq, quality_factor, fs=self.emg_sample_rate)
         self.notch_coeffs = (b, a)
-        logger.info(f"陷波滤波器设计完成: {notch_freq}Hz, Q={quality_factor}")
+        logger.info(f"陷波滤波器设计完成: {notch_freq}Hz, Q={quality_factor}, 采样率={self.emg_sample_rate}Hz")
         return b, a
     
     def apply_bandpass_filter(self, data):
@@ -136,11 +144,11 @@ class SignalProcessor:
             cutoff: 截止频率（Hz）
             order: 滤波器阶数
         """
-        nyq = 0.5 * self.sample_rate
+        nyq = 0.5 * self.imu_sample_rate
         high = cutoff / nyq
         b, a = butter(order, high, btype='low')
         self.lowpass_coeffs = (b, a)
-        logger.info(f"低通滤波器设计完成: {cutoff}Hz, 阶数={order}")
+        logger.info(f"低通滤波器设计完成: {cutoff}Hz, 阶数={order}, 采样率={self.imu_sample_rate}Hz")
         return b, a
     
     def apply_lowpass_filter(self, data):
@@ -292,100 +300,84 @@ class SignalProcessor:
         if not self.enabled:
             return
         
-        # 使用相对时间戳（基于样本数）
-        if not hasattr(self, 'sample_count'):
-            self.sample_count = 0
-        
-        # 计算相对时间（秒）
-        ts = self.sample_count / self.sample_rate
-        self.sample_count += 1
-        
         # 处理EMG数据
-        processed_emg = []
-        for i in range(8):
-            if i < len(emg_data):
-                self.emg_filter_buffers[i].append(emg_data[i])
-                if len(self.emg_filter_buffers[i]) > self.buffer_size:
-                    self.emg_filter_buffers[i].pop(0)
-                
-                # 当缓冲区足够大时，进行预处理
-                if len(self.emg_filter_buffers[i]) >= 30:  # 至少需要30个样本进行滤波
-                    data = np.array(self.emg_filter_buffers[i])
+        if len(emg_data) > 0:
+            emg_ts = self.emg_sample_count / self.emg_sample_rate
+            self.emg_sample_count += 1
+            
+            processed_emg = []
+            for i in range(8):
+                if i < len(emg_data):
+                    self.emg_filter_buffers[i].append(emg_data[i])
+                    if len(self.emg_filter_buffers[i]) > self.buffer_size:
+                        self.emg_filter_buffers[i].pop(0)
                     
-                    # 去趋势
-                    data = self.detrend(data)
-                    
-                    # 滤波
-                    if self.filter_type in ['bandpass', 'both']:
-                        data = self.apply_bandpass_filter(data)
-                    
-                    if self.filter_type in ['notch', 'both']:
-                        data = self.apply_notch_filter(data)
-                    
-                    # 归一化
-                    if self.normalize:
-                        data = self.apply_normalization(data)
-                    
-                    processed_emg.append(data[-1])  # 取最新的预处理值
+                    if len(self.emg_filter_buffers[i]) >= 30:
+                        data = np.array(self.emg_filter_buffers[i])
+                        data = self.detrend(data)
+                        
+                        if self.filter_type in ['bandpass', 'both']:
+                            data = self.apply_bandpass_filter(data)
+                        
+                        if self.filter_type in ['notch', 'both']:
+                            data = self.apply_notch_filter(data)
+                        
+                        if self.normalize:
+                            data = self.apply_normalization(data)
+                        
+                        processed_emg.append(data[-1])
+                    else:
+                        processed_emg.append(emg_data[i])
                 else:
-                    processed_emg.append(emg_data[i])  # 缓冲区不足时使用原始值
-            else:
-                processed_emg.append(0)
+                    processed_emg.append(0)
+            
+            if len(processed_emg) > 0:
+                self.processed_emg_buffer.append((emg_ts, processed_emg))
+                if len(self.processed_emg_buffer) > 10000:
+                    self.processed_emg_buffer.pop(0)
+                data_manager.save_data_point('EMG', emg_ts, processed_emg, is_processed=True)
         
         # 处理IMU数据
-        processed_imu = []
-        for i in range(6):
-            if i < len(imu_data):
-                self.imu_filter_buffers[i].append(imu_data[i])
-                if len(self.imu_filter_buffers[i]) > self.buffer_size:
-                    self.imu_filter_buffers[i].pop(0)
-                
-                # 当缓冲区足够大时，进行预处理
-                if len(self.imu_filter_buffers[i]) >= 30:  # 至少需要30个样本进行滤波
-                    data = np.array(self.imu_filter_buffers[i])
+        if len(imu_data) > 0:
+            imu_ts = self.imu_sample_count / self.imu_sample_rate
+            self.imu_sample_count += 1
+            
+            processed_imu = []
+            for i in range(6):
+                if i < len(imu_data):
+                    self.imu_filter_buffers[i].append(imu_data[i])
+                    if len(self.imu_filter_buffers[i]) > self.buffer_size:
+                        self.imu_filter_buffers[i].pop(0)
                     
-                    # 去趋势
-                    data = self.detrend(data)
-                    
-                    # 低通滤波（去除高频噪声，适合手势识别）
-                    if config.IMU_LOWPASS_ENABLED:
-                        if self.lowpass_coeffs is None:
-                            self.design_lowpass_filter(
-                                cutoff=config.IMU_LOWPASS_CUTOFF,
-                                order=config.IMU_LOWPASS_ORDER
-                            )
-                        data = self.apply_lowpass_filter(data)
-                    
-                    # 移动平均滤波（平滑数据）
-                    if config.IMU_MOVING_AVG_ENABLED:
-                        data = self.apply_moving_average(data, window_size=config.IMU_MOVING_AVG_WINDOW)
-                    
-                    # 归一化
-                    if self.normalize:
-                        data = self.apply_normalization(data)
-                    
-                    processed_imu.append(data[-1])  # 取最新的预处理值
+                    if len(self.imu_filter_buffers[i]) >= 30:
+                        data = np.array(self.imu_filter_buffers[i])
+                        data = self.detrend(data)
+                        
+                        if config.IMU_LOWPASS_ENABLED:
+                            if self.lowpass_coeffs is None:
+                                self.design_lowpass_filter(
+                                    cutoff=config.IMU_LOWPASS_CUTOFF,
+                                    order=config.IMU_LOWPASS_ORDER
+                                )
+                            data = self.apply_lowpass_filter(data)
+                        
+                        if config.IMU_MOVING_AVG_ENABLED:
+                            data = self.apply_moving_average(data, window_size=config.IMU_MOVING_AVG_WINDOW)
+                        
+                        if self.normalize:
+                            data = self.apply_normalization(data)
+                        
+                        processed_imu.append(data[-1])
+                    else:
+                        processed_imu.append(imu_data[i])
                 else:
-                    processed_imu.append(imu_data[i])  # 缓冲区不足时使用原始值
-            else:
-                processed_imu.append(0)
-        
-        # 更新预处理后的数据缓冲区
-        if len(processed_emg) > 0:
-            self.processed_emg_buffer.append((ts, processed_emg))
-            if len(self.processed_emg_buffer) > 10000:
-                self.processed_emg_buffer.pop(0)
+                    processed_imu.append(0)
             
-            # 保存预处理EMG数据
-            data_manager.save_data_point('EMG', ts, processed_emg, is_processed=True)
-        
-        if len(processed_imu) > 0:
-            self.processed_imu_buffer.append((ts, processed_imu))
-            if len(self.processed_imu_buffer) > 10000:
-                self.processed_imu_buffer.pop(0)
-            
-            # 保存预处理IMU数据
-            data_manager.save_data_point('IMU', ts, processed_imu, is_processed=True)
+            if len(processed_imu) > 0:
+                self.processed_imu_buffer.append((imu_ts, processed_imu))
+                if len(self.processed_imu_buffer) > 10000:
+                    self.processed_imu_buffer.pop(0)
+                data_manager.save_data_point('IMU', imu_ts, processed_imu, is_processed=True)
     
     def _process_full_buffer(self):
         """处理完整的缓冲区数据（已废弃）"""
@@ -393,4 +385,7 @@ class SignalProcessor:
 
 
 # 全局信号处理器实例
-signal_processor = SignalProcessor(sample_rate=250.0)
+signal_processor = SignalProcessor(
+    emg_sample_rate=config.EMG_SAMPLE_RATE,
+    imu_sample_rate=config.IMU_SAMPLE_RATE
+)

@@ -15,9 +15,18 @@ SAVE_DATA = True
 DATA_DIR = "data"
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
+# 采样率配置
+EMG_SAMPLE_RATE = 250.0  # Hz - EMG固定采样率
+IMU_SAMPLE_RATE = 104.0  # Hz - IMU采样率
+
 # 数据缓冲区
 emg_buffer = deque(maxlen=10000)
 imu_buffer = deque(maxlen=10000)
+
+# 采集专用缓冲区（不受maxlen限制，采集时使用）
+collection_emg_buffer = []
+collection_imu_buffer = []
+is_collecting = False
 
 # 缩放参数
 x_scale = 5000

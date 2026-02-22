@@ -120,7 +120,7 @@ def update_plot(root, axs, canvas):
             # 固定X轴范围为[0, x_scale]，确保波形移动速度一致
             x_max = config.x_scale
             
-            time_labels = [t * (1/250) for t in range(x_max + 1)]
+            time_labels = [t * (1/config.EMG_SAMPLE_RATE) for t in range(x_max + 1)]
             emg_data = [d for _, d in recent_emg]
             emg_array = np.array(emg_data)
             
@@ -138,7 +138,7 @@ def update_plot(root, axs, canvas):
                     
                     # 更新X轴标签（固定间隔）
                     tick_positions = list(range(0, x_max + 1, max(1, x_max // 10)))
-                    tick_labels = [f'{t * (1/250):.1f}' for t in tick_positions]
+                    tick_labels = [f'{t * (1/config.EMG_SAMPLE_RATE):.1f}' for t in tick_positions]
                     axs[i].set_xticks(tick_positions)
                     axs[i].set_xticklabels(tick_labels)
         
@@ -157,17 +157,28 @@ def update_plot(root, axs, canvas):
         # 重绘画布
         canvas.draw_idle()
         
+        # 更新手势识别器
+        try:
+            from src.main_window import update_recognition_with_data
+            if len(emg_source) > 0 and len(imu_source) > 0:
+                # 获取最新的EMG和IMU数据
+                _, latest_emg = emg_source[-1]
+                _, latest_imu = imu_source[-1]
+                update_recognition_with_data(latest_emg, latest_imu)
+        except Exception as e:
+            pass  # 识别器未初始化时忽略错误
+        
         # 更新最后的状态记录
         last_signal_label = signal_label
         last_emg_y_range = (emg_y_min_local, emg_y_max_local)
         last_imu_y_range = (imu_y_min_local, imu_y_max_local)
         
-        # 50ms后再次调用
-        root.after(50, lambda: update_plot(root, axs, canvas))
+        # 100ms后再次调用（降低更新频率以减少卡顿）
+        root.after(100, lambda: update_plot(root, axs, canvas))
         
     except Exception as e:
         logger.error(f"更新图表失败: {e}")
-        root.after(50, lambda: update_plot(root, axs, canvas))
+        root.after(100, lambda: update_plot(root, axs, canvas))
 
 
 def reset_plot():
