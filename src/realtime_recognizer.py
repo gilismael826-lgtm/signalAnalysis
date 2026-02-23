@@ -37,6 +37,7 @@ class RealtimeGestureRecognizer:
                  slide_step: int = 25,
                  confidence_threshold: float = 0.5,
                  smoothing_window: int = 5,
+                 switch_stability_threshold: float = 0.65,
                  model_path: str = None,
                  models_dir: str = 'models',
                  ensemble_strategy: str = 'weighted_voting',
@@ -50,6 +51,7 @@ class RealtimeGestureRecognizer:
             slide_step: 滑动步长（EMG样本数）
             confidence_threshold: 置信度阈值
             smoothing_window: 结果平滑窗口大小
+            switch_stability_threshold: 手势切换稳定性阈值（0-1，越高越不易抖动切换）
             model_path: 预训练模型路径（单模型模式）
             models_dir: 模型目录（集成模式）
             ensemble_strategy: 集成策略 ('weighted_voting', 'adaptive', 'best_only')
@@ -61,6 +63,7 @@ class RealtimeGestureRecognizer:
         self.slide_step = slide_step
         self.confidence_threshold = confidence_threshold
         self.smoothing_window = smoothing_window
+        self.switch_stability_threshold = np.clip(switch_stability_threshold, 0.0, 1.0)
         self.ensemble_strategy = ensemble_strategy
         self.use_ensemble = use_ensemble
         
@@ -101,6 +104,7 @@ class RealtimeGestureRecognizer:
         self.last_prediction = None
         self.last_confidence = 0.0
         self.last_prediction_time = None
+        self._stable_prediction = None
         
         self._prediction_callback = None
         self._window_ready_callback = None
@@ -281,6 +285,7 @@ class RealtimeGestureRecognizer:
         self.emg_counter = 0
         self.prediction_history.clear()
         self.confidence_history.clear()
+        self._stable_prediction = None
         logger.info("缓冲区已清空")
     
     # ==================== 预测功能 ====================
@@ -334,18 +339,21 @@ class RealtimeGestureRecognizer:
             self.confidence_history.append(confidence)
             
             smoothed_prediction, smoothed_confidence = self._smooth_results()
+            stabilized_prediction, switch_blocked = self._apply_switch_hysteresis(
+                smoothed_prediction
+            )
             
             stability = self._calculate_stability()
             
             self.prediction_count += 1
-            self.last_prediction = smoothed_prediction
+            self.last_prediction = stabilized_prediction
             self.last_confidence = smoothed_confidence
             self.last_prediction_time = datetime.now()
             
             prediction_time = (time.time() - start_time) * 1000
             
             result_dict = {
-                'gesture': smoothed_prediction,
+                'gesture': stabilized_prediction,
                 'confidence': smoothed_confidence,
                 'raw_prediction': prediction,
                 'raw_confidence': confidence,
@@ -357,6 +365,7 @@ class RealtimeGestureRecognizer:
                 'confidence_passed': confidence_passed,
                 'confidence_threshold': self.confidence_threshold,
                 'stability': stability,
+                'switch_blocked': switch_blocked,
                 'method': 'single',
                 'algorithm': self.classifier.algorithm if self.classifier else 'unknown',
                 'window_info': {
@@ -369,7 +378,7 @@ class RealtimeGestureRecognizer:
             if self._prediction_callback:
                 self._prediction_callback(result_dict)
             
-            logger.debug(f"预测: {smoothed_prediction}, 置信度: {smoothed_confidence:.2f}, "
+            logger.debug(f"预测: {stabilized_prediction}, 置信度: {smoothed_confidence:.2f}, "
                         f"稳定性: {stability:.2f}, 耗时: {prediction_time:.1f}ms")
             
             return result_dict
@@ -419,18 +428,21 @@ class RealtimeGestureRecognizer:
             self.confidence_history.append(confidence)
             
             smoothed_prediction, smoothed_confidence = self._smooth_results()
+            stabilized_prediction, switch_blocked = self._apply_switch_hysteresis(
+                smoothed_prediction
+            )
             
             stability = self._calculate_stability()
             
             self.prediction_count += 1
-            self.last_prediction = smoothed_prediction
+            self.last_prediction = stabilized_prediction
             self.last_confidence = smoothed_confidence
             self.last_prediction_time = datetime.now()
             
             prediction_time = (time.time() - start_time) * 1000
             
             result_dict = {
-                'gesture': smoothed_prediction,
+                'gesture': stabilized_prediction,
                 'confidence': smoothed_confidence,
                 'raw_prediction': prediction,
                 'raw_confidence': confidence,
@@ -442,6 +454,7 @@ class RealtimeGestureRecognizer:
                 'confidence_passed': confidence_passed,
                 'confidence_threshold': self.confidence_threshold,
                 'stability': stability,
+                'switch_blocked': switch_blocked,
                 'method': method,
                 'ensemble_strategy': self.ensemble_strategy,
                 'participating_models': participating_models,
@@ -457,7 +470,7 @@ class RealtimeGestureRecognizer:
             if self._prediction_callback:
                 self._prediction_callback(result_dict)
             
-            logger.debug(f"集成预测: {smoothed_prediction}, 置信度: {smoothed_confidence:.2f}, "
+            logger.debug(f"集成预测: {stabilized_prediction}, 置信度: {smoothed_confidence:.2f}, "
                         f"策略: {method}, 稳定性: {stability:.2f}, 耗时: {prediction_time:.1f}ms")
             
             return result_dict
@@ -533,6 +546,40 @@ class RealtimeGestureRecognizer:
             stability = stability * 0.7 + confidence_factor * 0.3
         
         return stability
+
+    def _apply_switch_hysteresis(self, prediction: Optional[str]) -> Tuple[Optional[str], bool]:
+        """应用手势切换迟滞，减少边界抖动造成的误切换。
+
+        Args:
+            prediction: 平滑后的候选预测
+
+        Returns:
+            (稳定后的预测, 是否阻止了切换)
+        """
+        if prediction is None:
+            self._stable_prediction = None
+            return None, False
+
+        valid_predictions = [p for p in self.prediction_history if p is not None]
+        if not valid_predictions:
+            return prediction, False
+
+        # 首次预测直接建立稳定状态
+        if self._stable_prediction is None:
+            self._stable_prediction = prediction
+            return prediction, False
+
+        # 未发生切换，直接接受
+        if prediction == self._stable_prediction:
+            return prediction, False
+
+        # 只有当新手势在窗口中占比足够高时才允许切换
+        switch_ratio = valid_predictions.count(prediction) / len(valid_predictions)
+        if switch_ratio >= self.switch_stability_threshold:
+            self._stable_prediction = prediction
+            return prediction, False
+
+        return self._stable_prediction, True
     
     def _extract_features_with_cache(self, emg_data: np.ndarray, imu_data: np.ndarray) -> Dict:
         """使用缓存优化的特征提取
@@ -672,6 +719,7 @@ class RealtimeGestureRecognizer:
         self.last_prediction = None
         self.last_confidence = 0.0
         self.last_prediction_time = None
+        self._stable_prediction = None
         logger.info("识别器已重置")
     
     def get_status(self) -> Dict:
@@ -697,7 +745,8 @@ class RealtimeGestureRecognizer:
                 'imu_sample_rate': self.imu_sample_rate,
                 'slide_step': self.slide_step,
                 'confidence_threshold': self.confidence_threshold,
-                'smoothing_window': self.smoothing_window
+                'smoothing_window': self.smoothing_window,
+                'switch_stability_threshold': self.switch_stability_threshold
             }
         }
         
