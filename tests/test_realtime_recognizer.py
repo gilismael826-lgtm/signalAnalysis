@@ -282,6 +282,51 @@ def test_result_smoothing():
     print()
 
 
+def test_switch_hysteresis_blocks_unstable_switch():
+    """测试手势切换迟滞：低占比新手势不应立即切换"""
+    recognizer = RealtimeGestureRecognizer(smoothing_window=5, switch_stability_threshold=0.8)
+
+    recognizer.prediction_history.extend(['fist', 'fist', 'fist', 'open', 'open'])
+    recognizer.confidence_history.extend([0.9, 0.88, 0.86, 0.82, 0.81])
+
+    # 建立已有稳定状态
+    recognizer._stable_prediction = 'fist'
+
+    smoothed_prediction, _ = recognizer._smooth_results()
+    stabilized_prediction, switch_blocked = recognizer._apply_switch_hysteresis(smoothed_prediction)
+
+    assert smoothed_prediction == 'fist'
+    assert stabilized_prediction == 'fist'
+    assert switch_blocked is False
+
+    # 构造接近切换边界但未达到阈值的情况
+    recognizer.prediction_history.clear()
+    recognizer.prediction_history.extend(['open', 'open', 'open', 'fist', 'fist'])
+    smoothed_prediction, _ = recognizer._smooth_results()
+    stabilized_prediction, switch_blocked = recognizer._apply_switch_hysteresis(smoothed_prediction)
+
+    assert smoothed_prediction == 'open'
+    assert stabilized_prediction == 'fist'
+    assert switch_blocked is True
+
+
+def test_switch_hysteresis_allows_stable_switch():
+    """测试手势切换迟滞：高占比新手势应允许切换"""
+    recognizer = RealtimeGestureRecognizer(smoothing_window=5, switch_stability_threshold=0.6)
+
+    recognizer._stable_prediction = 'fist'
+    recognizer.prediction_history.extend(['open', 'open', 'open', 'open', 'fist'])
+    recognizer.confidence_history.extend([0.85, 0.86, 0.84, 0.83, 0.7])
+
+    smoothed_prediction, _ = recognizer._smooth_results()
+    stabilized_prediction, switch_blocked = recognizer._apply_switch_hysteresis(smoothed_prediction)
+
+    assert smoothed_prediction == 'open'
+    assert stabilized_prediction == 'open'
+    assert switch_blocked is False
+    assert recognizer._stable_prediction == 'open'
+
+
 def test_status_management():
     """测试状态管理"""
     print("=" * 60)
